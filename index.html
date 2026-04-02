@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dynasty HQ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="screen active">
+  <div class="login-bg">
+    <div class="grid-overlay"></div>
+    <div class="glow-orb orb1"></div>
+    <div class="glow-orb orb2"></div>
+  </div>
+  <div class="login-container">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <h1>DYNASTY <span class="accent">HQ</span></h1>
+      <p class="tagline">Dein Dynasty Intelligence Center</p>
+    </div>
+    <div class="login-card">
+      <label>Sleeper Benutzername</label>
+      <div class="input-group">
+        <input type="text" id="usernameInput" placeholder="z.B. dynasty_king" autocomplete="off" />
+        <button id="loginBtn" onclick="loadUser()">
+          <span>LADEN</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+      <div id="loginError" class="error-msg hidden"></div>
+
+      <div class="source-selector">
+        <label>Spielerwert-Quelle</label>
+        <div class="source-options">
+          <button class="source-btn active" data-source="ktc">KeepTradeCut</button>
+          <button class="source-btn" data-source="fantasycalc">FantasyCalc</button>
+          <button class="source-btn" data-source="sleeper">Sleeper Rankings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="appScreen" class="screen">
+  <header class="app-header">
+    <div class="header-left">
+      <span class="logo-icon small">⬡</span>
+      <span class="app-title">DYNASTY <span class="accent">HQ</span></span>
+    </div>
+    <div class="header-center">
+      <div class="league-tabs" id="leagueTabs"></div>
+    </div>
+    <div class="header-right">
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="modeWinNow" onclick="setMode('winnow')">WIN NOW</button>
+        <button class="mode-btn" id="modeRebuild" onclick="setMode('rebuild')">REBUILD</button>
+      </div>
+      <button class="logout-btn" onclick="logout()">↩</button>
+    </div>
+  </header>
+
+  <nav class="tab-nav">
+    <button class="nav-btn active" onclick="showTab('overview')">📊 Übersicht</button>
+    <button class="nav-btn" onclick="showTab('roster')">👥 Mein Roster</button>
+    <button class="nav-btn" onclick="showTab('league')">🏆 Liga</button>
+    <button class="nav-btn" onclick="showTab('trades')">🔄 Trades</button>
+    <button class="nav-btn" onclick="showTab('tradecheck')">⚖️ Trade-Check</button>
+    <button class="nav-btn" onclick="showTab('waiver')">📋 Waiver</button>
+  </nav>
+
+  <main class="app-main">
+    <!-- OVERVIEW TAB -->
+    <div id="tab-overview" class="tab-content active">
+      <div class="page-header">
+        <h2>Übersicht</h2>
+        <span id="lastUpdated" class="last-updated"></span>
+      </div>
+      <div class="stats-grid" id="overviewStats"></div>
+      <div class="charts-row">
+        <div class="chart-card">
+          <h3>Altersverteilung</h3>
+          <canvas id="ageChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Positionsbalance</h3>
+          <canvas id="posChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Liga-Ranking</h3>
+          <canvas id="rankChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROSTER TAB -->
+    <div id="tab-roster" class="tab-content">
+      <div class="page-header">
+        <h2>Mein Roster</h2>
+        <div class="filter-row">
+          <button class="filter-btn active" onclick="filterRoster('all')">Alle</button>
+          <button class="filter-btn" onclick="filterRoster('QB')">QB</button>
+          <button class="filter-btn" onclick="filterRoster('RB')">RB</button>
+          <button class="filter-btn" onclick="filterRoster('WR')">WR</button>
+          <button class="filter-btn" onclick="filterRoster('TE')">TE</button>
+          <button class="filter-btn" onclick="filterRoster('PICK')">Picks</button>
+        </div>
+      </div>
+      <div id="rosterGrid" class="roster-grid"></div>
+    </div>
+
+    <!-- LEAGUE TAB -->
+    <div id="tab-league" class="tab-content">
+      <div class="page-header">
+        <h2>Liga-Vergleich</h2>
+      </div>
+      <div id="leagueTable" class="league-table-wrap"></div>
+      <div id="teamDetail" class="team-detail hidden"></div>
+    </div>
+
+    <!-- TRADES TAB -->
+    <div id="tab-trades" class="tab-content">
+      <div class="page-header">
+        <h2>Trade-Vorschläge</h2>
+        <span id="tradeMode" class="mode-badge">WIN NOW</span>
+      </div>
+      <div id="tradesList" class="trades-list"></div>
+    </div>
+
+    <!-- TRADE CHECK TAB -->
+    <div id="tab-tradecheck" class="tab-content">
+      <div class="page-header">
+        <h2>Trade-Check</h2>
+      </div>
+      <div class="trade-check-layout">
+        <div class="trade-side" id="mySide">
+          <h3>Ich gebe ab</h3>
+          <div class="search-wrap">
+            <input type="text" id="mySearch" placeholder="Spieler / Pick suchen..." oninput="searchPlayers('my', this.value)" />
+            <div id="myDropdown" class="search-dropdown hidden"></div>
+          </div>
+          <div id="mySelected" class="selected-items"></div>
+        </div>
+        <div class="trade-vs">
+          <div class="vs-display" id="vsDisplay">
+            <span>VS</span>
+          </div>
+          <button class="eval-btn" onclick="evaluateTrade()">BEWERTEN</button>
+        </div>
+        <div class="trade-side" id="theirSide">
+          <h3>Ich bekomme</h3>
+          <div class="search-wrap">
+            <input type="text" id="theirSearch" placeholder="Spieler / Pick suchen..." oninput="searchPlayers('their', this.value)" />
+            <div id="theirDropdown" class="search-dropdown hidden"></div>
+          </div>
+          <div id="theirSelected" class="selected-items"></div>
+        </div>
+      </div>
+      <div id="tradeResult" class="trade-result hidden"></div>
+    </div>
+
+    <!-- WAIVER TAB -->
+    <div id="tab-waiver" class="tab-content">
+      <div class="page-header">
+        <h2>Waiver Wire</h2>
+        <div class="filter-row">
+          <button class="filter-btn active" onclick="filterWaiver('all')">Alle</button>
+          <button class="filter-btn" onclick="filterWaiver('QB')">QB</button>
+          <button class="filter-btn" onclick="filterWaiver('RB')">RB</button>
+          <button class="filter-btn" onclick="filterWaiver('WR')">WR</button>
+          <button class="filter-btn" onclick="filterWaiver('TE')">TE</button>
+        </div>
+      </div>
+      <div id="waiverList" class="waiver-list"></div>
+    </div>
+  </main>
+
+  <!-- PLAYER MODAL -->
+  <div id="playerModal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-card" id="modalContent"></div>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="loader-wrap">
+      <div class="loader-hex">⬡</div>
+      <p id="loadingMsg">Lade Daten...</p>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
