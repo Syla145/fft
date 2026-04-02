@@ -41,12 +41,9 @@ async function loadUser() {
     // 1. User
     let user;
     try {
-      const res = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(username)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      user = await res.json();
-      if (!user || !user.user_id) throw new Error('Kein user_id in Antwort');
+      user = await getUser(username);
     } catch(e) {
-      throw new Error(`Benutzer "${username}" nicht gefunden (${e.message}). Bitte den exakten Sleeper-Benutzernamen prüfen.`);
+      throw new Error(`Benutzer "${username}" nicht gefunden. Bitte den exakten Sleeper-Benutzernamen prüfen.`);
     }
     state.user = user;
     localStorage.setItem(CACHE_KEY_PREFIX + 'last_user', username);
