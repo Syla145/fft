@@ -3,7 +3,14 @@ const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 const CACHE_KEY_PREFIX = 'dynastyhq_';
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-// ── CACHE HELPERS ────────────────────────────────────────────
+// CORS Proxies – tried in order until one works
+const CORS_PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+let workingProxyIdx = null;
+
+// ── CACHE HELPERS ─────────────────────────────────────────────
 function cacheSet(key, data) {
   try {
     localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ ts: Date.now(), data }));
@@ -20,41 +27,54 @@ function cacheGet(key, maxAge = CACHE_TTL) {
   } catch(e) { return null; }
 }
 
-// ── SLEEPER API ──────────────────────────────────────────────
+// ── FETCH WITH PROXY FALLBACK ─────────────────────────────────
+async function fetchWithProxy(url) {
+  // 1. Try direct first (works if Sleeper ever fixes CORS)
+  try {
+    const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+    if (res.ok) return await res.json();
+  } catch(e) {}
+
+  // 2. Try cached working proxy first
+  if (workingProxyIdx !== null) {
+    try {
+      const proxyUrl = CORS_PROXIES[workingProxyIdx](url);
+      const res = await fetch(proxyUrl);
+      if (res.ok) return await res.json();
+    } catch(e) { workingProxyIdx = null; }
+  }
+
+  // 3. Try all proxies in order
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    try {
+      const proxyUrl = CORS_PROXIES[i](url);
+      const res = await fetch(proxyUrl);
+      if (res.ok) {
+        const data = await res.json();
+        workingProxyIdx = i; // remember this one
+        return data;
+      }
+    } catch(e) {}
+  }
+
+  throw new Error('Sleeper API nicht erreichbar. Bitte kurz warten und erneut versuchen.');
+}
+
+// ── SLEEPER API ───────────────────────────────────────────────
 async function sleeperFetch(path) {
   const cacheKey = 'sleeper_' + path.replace(/\//g, '_');
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  let res;
-  try {
-    res = await fetch(SLEEPER_BASE + path, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      mode: 'cors',
-    });
-  } catch(e) {
-    throw new Error(`Netzwerkfehler: ${e.message}. Stelle sicher, dass die App über einen Webserver (GitHub Pages oder Live Server) geöffnet wird, nicht als lokale Datei.`);
-  }
-  if (!res.ok) throw new Error(`Sleeper API Fehler ${res.status}: Benutzername prüfen.`);
-  const data = await res.json();
+  const data = await fetchWithProxy(SLEEPER_BASE + path);
   cacheSet(cacheKey, data);
   return data;
 }
 
 async function getUser(username) {
-  const data = await sleeperFetch(`/user/${username}`);
-  if (!data || !data.user_id) throw new Error(`Benutzer "${username}" nicht gefunden. Bitte Sleeper-Benutzernamen prüfen.`);
+  const data = await fetchWithProxy(`${SLEEPER_BASE}/user/${encodeURIComponent(username)}`);
+  if (!data || !data.user_id) throw new Error(`Benutzer "${username}" nicht gefunden.`);
   return data;
-}
-
-async function getUserLeagues(userId, season = '2025') {
-  // Try current season first, fall back to 2024
-  let leagues = await sleeperFetch(`/user/${userId}/leagues/nfl/${season}`);
-  if (!leagues || leagues.length === 0) {
-    leagues = await sleeperFetch(`/user/${userId}/leagues/nfl/2024`);
-  }
-  return leagues || [];
 }
 
 async function getLeagueRosters(leagueId) {
@@ -69,29 +89,22 @@ async function getLeagueDraftPicks(leagueId) {
   return await sleeperFetch(`/league/${leagueId}/traded_picks`);
 }
 
-async function getLeagueDrafts(leagueId) {
-  return await sleeperFetch(`/league/${leagueId}/drafts`);
-}
-
 async function getAllPlayers() {
   const cacheKey = 'players_nfl';
-  const cached = cacheGet(cacheKey, 12 * 60 * 60 * 1000); // 12h cache
+  const cached = cacheGet(cacheKey, 12 * 60 * 60 * 1000);
   if (cached) return cached;
 
-  const res = await fetch(`${SLEEPER_BASE}/players/nfl`);
-  if (!res.ok) throw new Error('Spielerdaten konnten nicht geladen werden');
-  const data = await res.json();
+  const data = await fetchWithProxy(`${SLEEPER_BASE}/players/nfl`);
   cacheSet(cacheKey, data);
   return data;
 }
 
-// ── PLAYER VALUES API ────────────────────────────────────────
+// ── PLAYER VALUES API ─────────────────────────────────────────
 async function fetchPlayerValues(source) {
   switch(source) {
-    case 'ktc':      return await fetchKTCValues();
+    case 'ktc':         return await fetchKTCValues();
     case 'fantasycalc': return await fetchFantasyCalcValues();
-    case 'sleeper':  return {}; // Use sleeper rankings as fallback
-    default:         return await fetchKTCValues();
+    default:            return await fetchFantasyCalcValues();
   }
 }
 
@@ -100,24 +113,22 @@ async function fetchKTCValues() {
   const cached = cacheGet(cacheKey, 6 * 60 * 60 * 1000);
   if (cached) return cached;
 
+  // Try KTC via proxy
   try {
-    // KTC unofficial endpoint
-    const res = await fetch('https://keeptradecut.com/api/rankings?format=1&lineup=1&page=0&numQBs=1', {
-      headers: { 'Accept': 'application/json' }
+    const url = 'https://keeptradecut.com/api/rankings?format=1&lineup=1&page=0&numQBs=1';
+    const data = await fetchWithProxy(url);
+    const map = {};
+    (Array.isArray(data) ? data : (data.rankings || [])).forEach(p => {
+      if (p.sleeperId) map[p.sleeperId] = p.value || p.overallValue || 0;
+      if (p.playerName) map[normalizeName(p.playerName)] = p.value || p.overallValue || 0;
     });
-    if (res.ok) {
-      const data = await res.json();
-      const map = {};
-      (data.rankings || data || []).forEach(p => {
-        if (p.sleeperId) map[p.sleeperId] = p.value || p.overallValue || 0;
-        if (p.playerName) map[normalizeName(p.playerName)] = p.value || p.overallValue || 0;
-      });
+    if (Object.keys(map).length > 0) {
       cacheSet(cacheKey, map);
       return map;
     }
   } catch(e) {}
 
-  // Fallback: FantasyCalc
+  // Fallback to FantasyCalc
   return await fetchFantasyCalcValues();
 }
 
@@ -127,23 +138,22 @@ async function fetchFantasyCalcValues() {
   if (cached) return cached;
 
   try {
-    const res = await fetch('https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=1&ppr=1&numTeams=10');
-    if (res.ok) {
-      const data = await res.json();
-      const map = {};
-      (data || []).forEach(item => {
-        const p = item.player || item;
-        const val = item.value || item.overallValue || 0;
-        if (p.sleeperId) map[p.sleeperId] = val;
-        if (p.name) map[normalizeName(p.name)] = val;
-      });
+    const url = 'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=1&ppr=1&numTeams=10';
+    const data = await fetchWithProxy(url);
+    const map = {};
+    (Array.isArray(data) ? data : []).forEach(item => {
+      const p = item.player || item;
+      const val = item.value || item.overallValue || 0;
+      if (p.sleeperId) map[p.sleeperId] = val;
+      if (p.name) map[normalizeName(p.name)] = val;
+    });
+    if (Object.keys(map).length > 0) {
       cacheSet(cacheKey, map);
       return map;
     }
   } catch(e) {}
 
-  // Final fallback: return empty map, values will show as 0
-  console.warn('Spielerwerte konnten nicht geladen werden – kein Wert verfügbar');
+  console.warn('Spielerwerte nicht verfügbar – alle Werte werden als 0 angezeigt.');
   return {};
 }
 
@@ -151,53 +161,13 @@ function normalizeName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// ── PICKS HELPER ─────────────────────────────────────────────
-function buildPicksMap(tradedPicks, rosters, userId) {
-  // traded_picks: [{ season, round, roster_id (original), previous_owner_id, owner_id }]
-  const myRoster = rosters.find(r => r.owner_id === userId);
-  if (!myRoster) return { myPicks: [], theirPicks: {} };
-
-  const years = ['2025', '2026', '2027'];
-  const myPicks = [];
-
-  tradedPicks.forEach(pick => {
-    if (pick.owner_id === myRoster.roster_id.toString() ||
-        pick.owner_id === myRoster.roster_id) {
-      myPicks.push(pick);
-    }
-  });
-
-  // Also add own future picks not traded away
-  const tradedAway = tradedPicks
-    .filter(p => p.previous_owner_id === myRoster.roster_id ||
-                 p.previous_owner_id === myRoster.roster_id.toString())
-    .map(p => `${p.season}_${p.round}`);
-
-  years.forEach(yr => {
-    [1,2,3,4].forEach(rd => {
-      const key = `${yr}_${rd}`;
-      if (!tradedAway.includes(key)) {
-        myPicks.push({ season: yr, round: rd, roster_id: myRoster.roster_id, own: true });
-      }
-    });
-  });
-
-  return myPicks;
-}
-
-// ── PICK VALUE ESTIMATE ──────────────────────────────────────
+// ── PICK VALUE ESTIMATE ───────────────────────────────────────
 function estimatePickValue(season, round, teamStrength) {
   const currentYear = new Date().getFullYear();
-  const yearsOut = parseInt(season) - currentYear;
-  // Base values by round
+  const yearsOut = Math.max(0, parseInt(season) - currentYear);
   const baseValues = { 1: 3500, 2: 1800, 3: 900, 4: 400 };
   let val = baseValues[round] || 300;
-  // Adjust for years out
   val = val * Math.pow(0.85, yearsOut);
-  // Adjust for team strength (higher strength = later pick = less value for round 1)
-  if (round === 1) {
-    const multiplier = 1 + (1 - (teamStrength || 0.5)) * 0.5;
-    val = val * multiplier;
-  }
+  if (round === 1) val = val * (1 + (1 - (teamStrength || 0.5)) * 0.5);
   return Math.round(val);
 }
