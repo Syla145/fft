@@ -26,19 +26,35 @@ async function sleeperFetch(path) {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  const res = await fetch(SLEEPER_BASE + path);
-  if (!res.ok) throw new Error(`Sleeper API Fehler: ${res.status}`);
+  let res;
+  try {
+    res = await fetch(SLEEPER_BASE + path, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      mode: 'cors',
+    });
+  } catch(e) {
+    throw new Error(`Netzwerkfehler: ${e.message}. Stelle sicher, dass die App über einen Webserver (GitHub Pages oder Live Server) geöffnet wird, nicht als lokale Datei.`);
+  }
+  if (!res.ok) throw new Error(`Sleeper API Fehler ${res.status}: Benutzername prüfen.`);
   const data = await res.json();
   cacheSet(cacheKey, data);
   return data;
 }
 
 async function getUser(username) {
-  return await sleeperFetch(`/user/${username}`);
+  const data = await sleeperFetch(`/user/${username}`);
+  if (!data || !data.user_id) throw new Error(`Benutzer "${username}" nicht gefunden. Bitte Sleeper-Benutzernamen prüfen.`);
+  return data;
 }
 
-async function getUserLeagues(userId, season = '2024') {
-  return await sleeperFetch(`/user/${userId}/leagues/nfl/${season}`);
+async function getUserLeagues(userId, season = '2025') {
+  // Try current season first, fall back to 2024
+  let leagues = await sleeperFetch(`/user/${userId}/leagues/nfl/${season}`);
+  if (!leagues || leagues.length === 0) {
+    leagues = await sleeperFetch(`/user/${userId}/leagues/nfl/2024`);
+  }
+  return leagues || [];
 }
 
 async function getLeagueRosters(leagueId) {

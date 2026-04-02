@@ -74,7 +74,12 @@ async function loadUser() {
 
   } catch(e) {
     hideLoading();
-    errEl.textContent = e.message || 'Fehler beim Laden. Benutzername prüfen.';
+    const msg = e.message || 'Unbekannter Fehler';
+    if (msg.includes('Netzwerkfehler') || msg.includes('Failed to fetch')) {
+      errEl.innerHTML = '⚠️ Verbindung fehlgeschlagen.<br><small>Die App muss über einen Webserver geöffnet werden – nicht als lokale Datei.<br>Tipp: Lade sie auf <strong>GitHub Pages</strong> hoch oder nutze die <strong>VS Code Live Server</strong> Extension.</small>';
+    } else {
+      errEl.textContent = '⚠️ ' + msg;
+    }
     errEl.classList.remove('hidden');
   }
 }

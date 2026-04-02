@@ -153,8 +153,10 @@ body {
 #loginBtn:active { transform: scale(0.97); }
 
 .error-msg {
-  color: var(--red); font-size: 13px; margin-top: 10px;
+  color: var(--red); font-size: 13px; margin-top: 10px; line-height: 1.6;
 }
+.error-msg small { color: var(--text2); font-size: 12px; }
+.error-msg strong { color: var(--text); }
 
 .source-selector { margin-top: 24px; }
 .source-options { display: flex; gap: 8px; flex-wrap: wrap; }
